@@ -44,6 +44,7 @@
     use ran_mod
 
     REAL :: cpu_start, cpu_finish, iter_start, iter_finish, elapsed_time
+    REAL :: iTimes1, iTimes2, iTimes3, iTimes4
     INTEGER :: zetaStep=1
     
     integer:: ntc,nolayer,npara,ns,ns_real    ! number of time channel / layers / parameter per point / points
@@ -268,111 +269,16 @@
             end do
         end if
 
+        call CPU_TIME(iTimes1)
         call forwardprocess(rho_iter,hh_iter,hz1_iter,nolayer,ntc,time,ns_index,&
         & point1set,point2set,point3set,point4set,htt,ns_real,t_st,t_ed,xr1, hr1,rt1, rr1,nturn1,nturn11)
+        call CPU_TIME(iTimes2)
+         elapsed_time = iTimes2 - iTimes1
+        WRITE(*,*) 'one FP time:', elapsed_time, 'seconds'
 
+        print*, hz1_iter
 
-        ! ��ǰʱ�̵Ĳ������絼��
-        do i=1,npara
-            if(i .le. nolayer)then
-                m_pre(i+(k-1)*npara,1) = dlog(rho_iter(i))
-            else
-
-                m_pre(i+(k-1)*npara,1) = dlog(hh_iter(i-nolayer))
-
-            end if
-        end do
-
-
-        ! ���㵱ǰ�������
-        do i=1,ntc
-            deltadobs(i+(k-1)*ntc,1) = Vobs(i+(k-1)*ntc,1)-hz1_iter(i)
-        end do
-
-        Write(8,*)hz1_iter
-        Write(8,*)deltadobs
-
-        ! �����ſɱȾ���
-!        Write(6,*)'calculate Jacobi matrix ...'
-         call cal_jacobi(rho_iter, hh_iter,jacobi1, nolayer, ntc, ns_index,&
-         & point1set, point2set, point3set, point4set,htt,ns_real,t_st,t_ed,xr1, hr1,rt1, rr1,nturn1,nturn11)
-
-
-
-        ! �ܵ��ſɱȾ���
-        do i=1,ntc
-            do j=1,npara
-                jacobi(i+(k-1)*ntc,j+(k-1)*npara) = jacobi1(i,j)
-            end do
-        end do
-
-
-        do i=1,nolayer-1
-            height(k,i)=hh_iter(i)   ! �߶Ⱦ���
-        end do
-
-    end do
-
-    Write(16,20)dexp(m_pre)
-
-
-    do i=1,size2
-        if(i .le. tot_ntc)then
-            b0(i,1)=deltadobs(i,1)
-            do j=1,tot_para
-                Atemp(i,j)=jacobi(i,j)
-            end do
-        else
-            if(i .le. tot_ntc+size1)then
-                b0(i,1) = deltaRp(i-tot_ntc,1)
-                do j=1,tot_para
-                    Atemp(i,j)=Rp(i-tot_ntc,j)
-                end do
-            else
-                b0(i,1) = deltaRd(i-tot_ntc-size1,1)
-                do j=1,tot_para
-                    Atemp(i,j)=Rd(i-tot_ntc-size1,j)
-                end do
-            end if
-        endif
-    end do
-
-
-    call bmuav(Atemp,size2,tot_para,u,v,l,eps,ka,s,e,work)   !    ����ֵ�ֽⷨ
-
-    Btemp = matmul(transpose(Atemp),Atemp)+EYE
-
-    !****************** �����������Է��� *****************************
-    call get_invMatrix(Btemp,tot_para,invBtemp)
-
-
-    ! lambda ̫С��ʱ���ʹ������������
-    deltam = matmul(matmul(matmul(matmul(transpose(v),invBtemp),&
-        transpose(Atemp)),transpose(u)),b0)
-
-
-    m_next = m_pre+deltam
-
-    !************ calculate phid *****************
-
-    temp0 = matmul(transpose(deltadobs),deltadobs)
-    rerror = temp0(1,1)/tot_ntc
-
-    Write(7, 100)rerror
-
-    CALL CPU_TIME(iter_finish)
-    elapsed_time = iter_finish - iter_start
-    WRITE(23,*) 'Iter', counter ,' CPU time:', elapsed_time, 'seconds'
-    WRITE(*,*) 'Iter', counter ,' CPU time:', elapsed_time, 'seconds'
-
-    If(rerror>epsi .and. counter<60) Goto 101
-
-    Write(17, *)1.0
-
-    CALL CPU_TIME(cpu_finish)
-    elapsed_time = cpu_finish - cpu_start
-    WRITE(23,*) 'Elapsed CPU time:', elapsed_time, 'seconds'
-    WRITE(*,*) 'Elapsed CPU time:', elapsed_time, 'seconds'
+    End do
 
 10  Format(56E14.6)
 
@@ -392,507 +298,6 @@
     !!                          subroutine program 3 ����ֵ�ֽ�
     !!                           Householder�任��QR�㷨
     !// ForQuill v1.01 Beta www.fcode.cn
-    Subroutine bmuav(a, m, n, u, v, l, eps, ka, s, e, work)
-    Dimension a(m, n), u(m, m), v(n, n), s(ka), e(ka), work(ka)
-    Real *8 a, u, v, s, e, d, work, dd, f, g, cs, sn, shh, sk, ek, b, c, sm, sm1, em1, eps
-    it = 60
-    k = n
-    If (m-1<n) k = m - 1
-    l = m
-    If (n-2<m) l = n - 2
-    If (l<0) l = 0
-    ll = k
-    If (l>k) ll = l
-    If (ll>1) Then
-        Do kk = 1, ll
-            If (kk<=k) Then
-                d = 0.0
-                Do i = kk, m
-                    d = d + a(i, kk)*a(i, kk)
-                End Do
-                s(kk) = sqrt(d)
-                If (s(kk)/=0.0) Then
-                    If (a(kk,kk)/=0.0) s(kk) = sign(s(kk), a(kk,kk))
-                    Do i = kk, m
-                        a(i, kk) = a(i, kk)/s(kk)
-                    End Do
-                    a(kk, kk) = 1.0 + a(kk, kk)
-                End If
-                s(kk) = -s(kk)
-            End If
-            If (n>=kk+1) Then
-                Do j = kk + 1, n
-                    If ((kk<=k) .And. (s(kk)/=0.0)) Then
-                        d = 0.0
-                        Do i = kk, m
-                            d = d + a(i, kk)*a(i, j)
-                        End Do
-                        d = -d/a(kk, kk)
-                        Do i = kk, m
-                            a(i, j) = a(i, j) + d*a(i, kk)
-                        End Do
-                    End If
-                    e(j) = a(kk, j)
-                End Do
-            End If
-            If (kk<=k) Then
-                Do i = kk, m
-                    u(i, kk) = a(i, kk)
-                End Do
-            End If
-            If (kk<=l) Then
-                d = 0.0
-                Do i = kk + 1, n
-                    d = d + e(i)*e(i)
-                End Do
-                e(kk) = sqrt(d)
-                If (e(kk)/=0.0) Then
-                    If (e(kk+1)/=0.0) e(kk) = sign(e(kk), e(kk+1))
-                    Do i = kk + 1, n
-                        e(i) = e(i)/e(kk)
-                    End Do
-                    e(kk+1) = 1.0 + e(kk+1)
-                End If
-                e(kk) = -e(kk)
-                If ((kk+1<=m) .And. (e(kk)/=0.0)) Then
-                    Do i = kk + 1, m
-                        work(i) = 0.0
-                    End Do
-                    Do j = kk + 1, n
-                        Do i = kk + 1, m
-                            work(i) = work(i) + e(j)*a(i, j)
-                        End Do
-                    End Do
-                    Do j = kk + 1, n
-                        Do i = kk + 1, m
-                            a(i, j) = a(i, j) - work(i)*e(j)/e(kk+1)
-                        End Do
-                    End Do
-                End If
-                Do i = kk + 1, n
-                    v(i, kk) = e(i)
-                End Do
-            End If
-        End Do
-    End If
-    mm = n
-    If (m+1<n) mm = m + 1
-    If (k<n) s(k+1) = a(k+1, k+1)
-    If (m<mm) s(mm) = 0.0
-    If (l+1<mm) e(l+1) = a(l+1, mm)
-    e(mm) = 0.0
-    nn = m
-    If (m>n) nn = n
-    If (nn>=k+1) Then
-        Do j = k + 1, nn
-            Do i = 1, m
-                u(i, j) = 0.0
-            End Do
-            u(j, j) = 1.0
-        End Do
-    End If
-    If (k>=1) Then
-        Do ll = 1, k
-            kk = k - ll + 1
-            If (s(kk)/=0.0) Then
-                If (nn>=kk+1) Then
-                    Do j = kk + 1, nn
-                        d = 0.0
-                        Do i = kk, m
-                            d = d + u(i, kk)*u(i, j)/u(kk, kk)
-                        End Do
-                        d = -d
-                        Do i = kk, m
-                            u(i, j) = u(i, j) + d*u(i, kk)
-                        End Do
-                    End Do
-                End If
-                Do i = kk, m
-                    u(i, kk) = -u(i, kk)
-                End Do
-                u(kk, kk) = 1.0 + u(kk, kk)
-                If (kk-1>=1) Then
-                    Do i = 1, kk - 1
-                        u(i, kk) = 0.0
-                    End Do
-                End If
-            Else
-                Do i = 1, m
-                    u(i, kk) = 0.0
-                End Do
-                u(kk, kk) = 1.0
-            End If
-        End Do
-    End If
-    Do ll = 1, n
-        kk = n - ll + 1
-        If ((kk<=l) .And. (e(kk)/=0.0)) Then
-            Do j = kk + 1, n
-                d = 0.0
-                Do i = kk + 1, n
-                    d = d + v(i, kk)*v(i, j)/v(kk+1, kk)
-                End Do
-                d = -d
-                Do i = kk + 1, n
-                    v(i, j) = v(i, j) + d*v(i, kk)
-                End Do
-            End Do
-        End If
-        Do i = 1, n
-            v(i, kk) = 0.0
-        End Do
-        v(kk, kk) = 1.0
-    End Do
-    Do i = 1, m
-        Do j = 1, n
-            a(i, j) = 0.0
-        End Do
-    End Do
-    m1 = mm
-    it = 60
-310 If (mm==0) Then
-        l = 0
-        If ((m>=n)) Then
-            i = n
-        Else
-            i = m
-        End If
-        Do j = 1, i - 1
-            a(j, j) = s(j)
-            a(j, j+1) = e(j)
-        End Do
-        a(i, i) = s(i)
-        If (m<n) a(i, i+1) = e(i)
-        Do i = 1, n - 1
-            Do j = i + 1, n
-                Call real_exchange(v(i,j), v(j,i))
-            End Do
-        End Do
-        Return
-    End If
-    !
-    If (it==0) Then
-        l = mm
-        If (m>=n) Then
-            i = n
-        Else
-            i = m
-        End If
-        Do j = 1, i - 1
-            a(j, j) = s(j)
-            a(j, j+1) = e(j)
-        End Do
-        a(i, i) = s(i)
-        If (m<n) a(i, i+1) = e(i)
-        Do i = 1, n - 1
-            Do j = i + 1, n
-                Call real_exchange(v(i,j), v(j,i))
-            End Do
-        End Do
-        Return
-    End If
-    !
-    kk = mm
-320 kk = kk - 1
-    If (kk/=0) Then
-        d = abs(s(kk)) + abs(s(kk+1))
-        dd = abs(e(kk))
-        If (dd>eps*d) Goto 320
-        e(kk) = 0.0
-    End If
-    If (kk==mm-1) Then
-        kk = kk + 1
-        If (s(kk)<0.0) Then
-            s(kk) = -s(kk)
-            Do i = 1, n
-                v(i, kk) = -v(i, kk)
-            End Do
-        End If
-335     If (kk/=m1) Then
-            If (s(kk)<s(kk+1)) Then
-                Call real_exchange(s(kk), s(kk+1))
-                If (kk<n) Then
-                    Do i = 1, n
-                        Call real_exchange(v(i,kk), v(i,kk+1))
-                    End Do
-                End If
-                If (kk<m) Then
-                    Do i = 1, m
-                        Call real_exchange(u(i,kk), u(i,kk+1))
-                    End Do
-                End If
-                kk = kk + 1
-                Goto 335
-            End If
-        End If
-        it = 60
-        mm = mm - 1
-        Goto 310
-    End If
-    ks = mm + 1
-360 ks = ks - 1
-    If (ks>kk) Then
-        d = 0.0
-        If (ks/=mm) d = d + abs(e(ks))
-        If (ks/=kk+1) d = d + abs(e(ks-1))
-        dd = abs(s(ks))
-        If (dd>eps*d) Goto 360
-        s(ks) = 0.0
-    End If
-    If (ks==kk) Then
-        kk = kk + 1
-        d = abs(s(mm))
-        If (abs(s(mm-1))>d) d = abs(s(mm-1))
-        If (abs(e(mm-1))>d) d = abs(e(mm-1))
-        If (abs(s(kk))>d) d = abs(s(kk))
-        If (abs(e(kk))>d) d = abs(e(kk))
-        sm = s(mm)/d
-        sm1 = s(mm-1)/d
-        em1 = e(mm-1)/d
-        sk = s(kk)/d
-        ek = e(kk)/d
-        b = ((sm1+sm)*(sm1-sm)+em1*em1)/2.0
-        c = sm*em1
-        c = c*c
-        shh = 0.0
-        If ((b/=0.0) .Or. (c/=0.0)) Then
-            shh = sqrt(b*b+c)
-            If (b<0.0) shh = -shh
-            shh = c/(b+shh)
-        End If
-        f = (sk+sm)*(sk-sm) - shh
-        g = sk*ek
-        Do i = kk, mm - 1
-            Call sss(f, g, cs, sn)
-            If (i/=kk) e(i-1) = f
-            f = cs*s(i) + sn*e(i)
-            e(i) = cs*e(i) - sn*s(i)
-            g = sn*s(i+1)
-            s(i+1) = cs*s(i+1)
-            If ((cs/=1.0) .Or. (sn/=0.0)) Then
-                Do j = 1, n
-                    d = cs*v(j, i) + sn*v(j, i+1)
-                    v(j, i+1) = -sn*v(j, i) + cs*v(j, i+1)
-                    v(j, i) = d
-                End Do
-            End If
-            Call sss(f, g, cs, sn)
-            s(i) = f
-            f = cs*e(i) + sn*s(i+1)
-            s(i+1) = -sn*e(i) + cs*s(i+1)
-            g = sn*e(i+1)
-            e(i+1) = cs*e(i+1)
-            If (i<m) Then
-                If ((cs/=1.0) .Or. (sn/=0.0)) Then
-                    Do j = 1, m
-                        d = cs*u(j, i) + sn*u(j, i+1)
-                        u(j, i+1) = -sn*u(j, i) + cs*u(j, i+1)
-                        u(j, i) = d
-                    End Do
-                End If
-            End If
-        End Do
-        e(mm-1) = f
-        it = it - 1
-        Goto 310
-    End If
-    If (ks==mm) Then
-        kk = kk + 1
-        f = e(mm-1)
-        e(mm-1) = 0.0
-        Do ll = kk, mm - 1
-            i = mm + kk - ll - 1
-            g = s(i)
-            Call sss(g, f, cs, sn)
-            s(i) = g
-            If (i/=kk) Then
-                f = -sn*e(i-1)
-                e(i-1) = cs*e(i-1)
-            End If
-            If ((cs/=1.0) .Or. (sn/=0.0)) Then
-                Do j = 1, n
-                    d = cs*v(j, i) + sn*v(j, mm)
-                    v(j, mm) = -sn*v(j, i) + cs*v(j, mm)
-                    v(j, i) = d
-                End Do
-            End If
-        End Do
-        Goto 310
-    End If
-    kk = ks + 1
-    f = e(kk-1)
-    e(kk-1) = 0.0
-    Do i = kk, mm
-        g = s(i)
-        Call sss(g, f, cs, sn)
-        s(i) = g
-        f = -sn*e(i)
-        e(i) = cs*e(i)
-        If ((cs/=1.0) .Or. (sn/=0.0)) Then
-            Do j = 1, m
-                d = cs*u(j, i) + sn*u(j, kk-1)
-                u(j, kk-1) = -sn*u(j, i) + cs*u(j, kk-1)
-                u(j, i) = d
-            End Do
-        End If
-    End Do
-    Goto 310
-    End Subroutine bmuav
-
-    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    !!        subroutine program 4 subroutine program for ����ֵ�ֽ�
-    Subroutine sss(f, g, cs, sn)
-    Real *8 f, g, cs, sn, d, r
-    If ((abs(f)+abs(g))==0.0) Then
-        cs = 1.0
-        sn = 0.0
-        d = 0.0
-    Else
-        d = sqrt(f*f+g*g)
-        If (abs(f)>abs(g)) d = sign(d, f)
-        If (abs(g)>=abs(f)) d = sign(d, g)
-        cs = f/d
-        sn = g/d
-    End If
-    r = 1.0
-    If (abs(f)>abs(g)) Then
-        r = sn
-    Else
-        If (cs/=0.0) r = 1.0/cs
-    End If
-    f = d
-    g = r
-    Return
-    End Subroutine sss
-
-    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    !!  subroutine program 6 double precision exchange
-    Subroutine real_exchange(t1, t2)
-    Implicit None
-    Double Precision t1, t2, cup
-    cup = t1
-    t1 = t2
-    t2 = cup
-
-    end
-    subroutine get_invMatrix(A,n,invA)
-    implicit none
-    integer :: n
-    real*8  :: A(n,n), invA(n,n)
-
-    call solve(A, invA, n)
-
-    end subroutine get_invMatrix
-
-
-    subroutine solve(A, invA, n)
-    implicit none
-    integer :: i, n
-    real*8  :: A(n,n), invA(n,n), E(n,n)
-
-    E = 0.d0
-    !����EΪ��λ����
-    do i = 1, n
-        E(i,i) = 1.d0
-    end do
-
-    call mateq(A, E, invA, n, n)
-
-    end subroutine solve
-
-
-    subroutine mateq(A, B, X, n, M)
-    implicit none
-    integer :: i, k, m, n, id_max
-    real*8  :: A(n,n), B(n,M), X(n,M)
-
-    real*8  :: Aup(n,n), elmax, temp
-    !AbΪ������� [AB]
-    real*8  :: AB(n,n+M), vtemp1(n+M), vtemp2(n+M), vtmp(n), xtmp(n)
-
-    AB(1:n,1:n) = A
-
-    AB(:,n+1:n+M) = B
-
-    !##########################################################
-    !  ���������Ԫ��ȥ���ĺ��Ĳ���
-    do k = 1, n-1
-
-        elmax  = abs(Ab(k,k))
-        id_max = k
-
-        !���Ϊ������Ԫ��
-        !��γ������ҪĿ�Ĳ���Ϊ�˸�ֵ���Ԫ�ظ�elmax������Ϊ���ҳ����Ԫ�ض�Ӧ�ı��
-
-
-        do i=k+1,n
-            if (abs(Ab(i,k))>elmax) then
-                elmax = Ab(i,k)
-
-                id_max = i
-            end if
-        end do
-
-        !���ˣ��Ѿ���ɲ������Ԫ�أ���������Ժ��� ��k�н���
-        !��������Ԫ�أ���������
-        vtemp1 = Ab(k,:)
-        vtemp2 = Ab(id_max,:)
-
-
-        Ab(k,:)      = vtemp2
-        Ab(id_max,:) = vtemp1
-        !
-        !����һ�����Ϊ��������Ԫ�أ���������Ժ󼴰�����Ԫ������
-        !#########################################################
-
-        do i = k+1, n
-
-            temp    = Ab(i,k)/Ab(k,k)
-
-            Ab(i,:) = Ab(i,:)-temp*Ab(k,:)
-
-        end do
-
-    end do
-    !-----------------------------
-    ! ������һ����Ab�Ѿ���Ϊ������ʽ�ľ���
-    !            | *  *  *  *  #  #|
-    !     [A b]= | 0  *  *  *  #  #|
-    !            | 0  0  *  *  #  #|
-    !            | 0  0  0  *  #  #|
-    !
-    Aup(:,:) = AB(1:n,1:n)
-
-    do i=1,m
-        !�����������Ƿ�����Ļش�����
-        vtmp = AB(:,n+i)
-        call uptri(Aup,vtmp,xtmp,n)
-        !�Ѽ�������ֵ��X
-        X(:,i) = xtmp
-    end do
-
-    end subroutine mateq
-
-
-    subroutine uptri(A,b,x,n)
-    implicit none
-    integer :: i, j, n
-    real*8  :: A(n,n), b(n), x(n)
-
-    x(n) = b(n)/A(n,n)
-    !�ش�����
-    do i = n-1, 1, -1
-
-        x(i) = b(i)
-        do j = i + 1,n
-            x(i) = x(i)-a(i,j)*x(j)
-        end do
-        x(i) = x(i)/A(i,i)
-
-    end do
-
-    end subroutine uptri
-
 
 
     subroutine cal_jacobi(m1,m2,jac,nlayer,ntc0,ns_id1,p11,p21,p31,p41,htt1,ns_real1,t_st1,t_ed1,xr1,hr1,rt1,rr1,nturn1,nturn11)
@@ -934,7 +339,8 @@
     Real *8 rhonew1(nlayer), hhnew1(nlayer), rhonew2(nlayer), hhnew2(nlayer)
 
     Real *8,allocatable:: hzz1(:),hzz11(:), time0(:)
-
+    REAL :: elapsed_time, iTimes3, iTimes4
+    
     real *8 p1(ns_real2*2), p2(ns_real2*2), p3(ns_real2*2), p4(ns_real2*2)
     Real *8 t_st2,t_ed2,xr1, hr1,rt1, rr1
     Common /this_is_note/zetaStep
@@ -961,8 +367,15 @@
             hhnew2(jth-nlayer) = dexp(dlog(hhh(jth-nlayer))-zeta1(i)*del)
         endif
 
+    ! CALL CPU_TIME(iTimes3)
+
         call forwardprocess(rhonew1, hhnew1, hzz1, nlayer,ntc1,time0,ns_id,p1,p2,p3,p4,htt2,&
         &ns_real2,t_st2,t_ed2,xr1, hr1,rt1, rr1,nturn1,nturn11)
+
+    ! CALL CPU_TIME(iTimes4)
+    ! elapsed_time = iTimes4 - iTimes3
+    ! WRITE(*,*) 'one FP CPU time:', elapsed_time, 'seconds'
+
         call forwardprocess(rhonew2, hhnew2, hzz11, nlayer,ntc1,time0,ns_id,p1,p2,p3,p4,htt2,&
         & ns_real2,t_st2,t_ed2,xr1, hr1,rt1, rr1,nturn1,nturn11)
 
@@ -990,6 +403,7 @@
     real *8 slope1, slope2, slope3
 
     real *8 p1(ns1*2), p2(ns1*2), p3(ns1*2), p4(ns1*2)
+    REAL :: elapsed_time, iTimes3, iTimes4
 
     real *8  rt, rr
     integer::nturn, nturn1
@@ -1086,6 +500,7 @@
                 If (t(i)>(ip-1)*(tt1+tt2+tt3+tt4) .And. t(i)<ip*(tt1+tt2+tt3+tt4)) kpls = ip
             End Do
 
+            ! not running now
             Do ip = 1, kpls - 1
 
                 Call frt(rho, hh, t(i)-(ip-1)*(tt1+tt2+tt3+tt4), s2, 2, zplus, zminus, 1, ik, nlayer)
@@ -1247,6 +662,7 @@
     Real *8 t, ft, zplus, zminus, pi, q, rho1(nlayer), hh1(nlayer)
     Real *8 frq(67), funr0(67), funi0(67)
     Real *8 f(160), omega(160), funr1(160), funi1(160), h(200)
+    REAL :: elapsed_time, iTimes3, iTimes4
     Common /funn/frq, func
     Data pi, q/3.141592654D0, 1.258925412D0/
     Data ncnull, nc, ndec, (h(i), i=1, 160)/80,160,10,&
@@ -1322,11 +738,15 @@
         & 0.21544347d+07,0.31622777d+07,0.46415888d+07,0.68129207d+07,&
         & 0.10000000d+08,0.14677993d+08,0.21544347d+08,0.31622777d+08,&
         & 0.46415888d+08,0.68129207d+08,0.1000000d+09/
+    
     If (ik==0) Then
         Do i = 1, nfrq
             Call forward(rho1, hh1, frq(i), func(item,i), item, zplus, zminus, nlayer) ! mu0*H = B
         End Do
     End If
+   
+
+    
     Do nn = 1, nc
         n = -nc + ncnull + nn
         omega(nn) = q**(-(n-1))/t
@@ -1340,6 +760,8 @@
     Call spl(nfrq, nc, frq, funr0, f, funr1)  !interpolation
     Call spl(nfrq, nc, frq, funi0, f, funi1)
     ft = 0.D0
+
+    CALL CPU_TIME(iTimes3)
     Do nn = 1, nc
 
         If (ic==0) Then
@@ -1356,9 +778,13 @@
             itn = nc - nn + it
             ft = ft + dimag(fun)*dsqrt(omega(nn))*h(itn) ! primary field st
         End Do
-
+ 
     End Do
     ft = -ft*dsqrt(2.D0/pi/t)
+     CALL CPU_TIME(iTimes4)
+         elapsed_time = iTimes4 - iTimes3
+    ! WRITE(*,*) 'hankel CPU time:', elapsed_time, 'seconds'
+
     Return
     End Subroutine frt
 
