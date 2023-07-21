@@ -416,18 +416,17 @@ end module mmul_mod
     ! res2 = matmul(transpose(v),invBtemp)
     ! print*, res2(1,1)
 
-    call mmul(transpose(v),invBtemp, res1)
-    call mmul(res1,transpose(Atemp), res2)
-    call mmul(res2,transpose(u), res3)
-    call mmul(res3,b0, res4)
-    ! print*, res4(1,1)
+    ! call mmul(transpose(v),invBtemp, res1)
+    ! call mmul(res1,transpose(Atemp), res2)
+    ! call mmul(res2,transpose(u), res3)
+    ! call mmul(res3,b0, res4)
 
     deltam = matmul(matmul(matmul(matmul(transpose(v),invBtemp),&
         transpose(Atemp)),transpose(u)),b0)
 
-    print*, res4
-    print*, '------'
-    print*, deltam
+    ! print*, res4
+    ! print*, '------'
+    ! print*, deltam
 
     m_next = m_pre+deltam
 
@@ -1489,7 +1488,7 @@ end module mmul_mod
     ft = -ft*dsqrt(2.D0/pi/t)
     CALL CPU_TIME(iTimes4)
     elapsed_time = iTimes4 - iTimes3
-    WRITE(*,*) 'hankel CPU time:', elapsed_time, 'seconds'
+    ! WRITE(*,*) 'hankel CPU time:', elapsed_time, 'seconds'
 
     Return
     End Subroutine frt
