@@ -1087,19 +1087,20 @@ end module mmul_mod
     integer::nturn, nturn1
     Complex *16 func(5, 67)
 
-    Data pi/3.1415926D0/
+    ! Data pi/3.1415926D0/
     Data ngau/10000/
 
     Common /para/r
 
     Common /funn/frq,nfrq, func
 
+    Real *8, tbank(nt*4), cur_t
     ! ==== copy from frt, variable definition =======
     Complex *16 fun, iomega
     Real *8 ft,  q
     Real *8  funr0(67), funi0(67)
-    Real *8 f(160), omega(160), funr1(160), funi1(160), h(200)
-    ! Data pi, q/3.141592654D0, 1.258925412D0/
+    Real *8 f(160), omega(160), funr1(nt*4,160), funi1(nt*4,160), h(200)
+    Data pi, q/3.141592654D0, 1.258925412D0/
     Data ncnull, nc, ndec, (h(i), i=1, 160)/80,160,10,&
         & 2.59511139938829d-13,3.66568771323555d-13,5.17792876616242d-13,&
         & 7.31400730405791d-13,1.03313281156235d-12,1.45933600088387d-12,&
@@ -1231,56 +1232,90 @@ end module mmul_mod
         Call forward(rho, hh, frq(i), func(2,i), 2, zplus, zminus, nlayer) ! mu0*H = B
     End Do
 
+    Do i = 1, nt
+        tbank( (i-1)*4 + 1) = t(i)
+        tbank( (i-1)*4 + 2) = t(i) - tt1
+        tbank( (i-1)*4 + 3) = t(i) - (tt1+tt2)
+        tbank( (i-1)*4 + 4) = t(i) - (tt1+tt2+tt3)
+    end do
+
+    ! tbank(1) = t(1)
+    ! print*, size(tbank)
+
+    Do j = 1, size(tbank)
+        cur_t = tbank(j)
+        ! print*, 'cur t:', cur_t
+
+        Do nn = 1, nc
+            n = -nc + ncnull + nn
+            omega(nn) = q**(-(n-1))/cur_t
+            f(nn) = omega(nn)/(2.D0*pi)
+        End Do
+
+        Do i = 1, nfrq
+            funr0(i) = dreal(func(2,i))
+            funi0(i) = dimag(func(2,i))
+        End Do
+
+        Call spl(nfrq, nc, frq, funr0, f, funr1(j,:))  !interpolation
+        Call spl(nfrq, nc, frq, funi0, f, funi1(j,:))
+
+    End do
+
+    ! print*, 'cur funr1'
+    ! print*, funr1(112,1:5)
+
+
     !********************* impulse and step wave ************************
     If (ic==3) Then
-        Do i = 1, nt
+        ! Do i = 1, nt
 
-            ss2 = 0.D0
+        !     ss2 = 0.D0
 
-            ik = 0
+        !     ik = 0
 
-            Do ip = 1, npls
-                If (t(i)>(ip-1)*(tt1+tt2+tt3+tt4) .And. t(i)<ip*(tt1+tt2+tt3+tt4)) kpls = ip
-            End Do
+        !     Do ip = 1, npls
+        !         If (t(i)>(ip-1)*(tt1+tt2+tt3+tt4) .And. t(i)<ip*(tt1+tt2+tt3+tt4)) kpls = ip
+        !     End Do
 
-            ! not running now
+        !     ! not running now
 
-            !****************** contribution from resting pulses**************************
-            If (t(i)>(kpls-1)*(tt1+tt2+tt3+tt4))Then
+        !     !****************** contribution from resting pulses**************************
+        !     If (t(i)>(kpls-1)*(tt1+tt2+tt3+tt4))Then
 
-                Call frt(rho, hh, t(i)-(kpls-1)*(tt1+tt2+tt3+tt4), s2, 2, zplus, zminus, 1, ik, nlayer)
+        !         Call frt(rho, hh, t(i)-(kpls-1)*(tt1+tt2+tt3+tt4), s2, 2, zplus, zminus, 1, ik, nlayer)
 
-                ss2 = ss2 + s2*slope1
+        !         ss2 = ss2 + s2*slope1
 
-                ik = ik + 1
+        !         ik = ik + 1
 
-                If (t(i)>(kpls-1)*(tt1+tt2+tt3+tt4)+tt1)Then
+        !         If (t(i)>(kpls-1)*(tt1+tt2+tt3+tt4)+tt1)Then
 
-                    Call frt(rho, hh, t(i)-(kpls-1)*(tt1+tt2+tt3+tt4)-tt1, s2, 2, zplus, zminus, 1, ik, nlayer)
+        !             Call frt(rho, hh, t(i)-(kpls-1)*(tt1+tt2+tt3+tt4)-tt1, s2, 2, zplus, zminus, 1, ik, nlayer)
 
-                    ss2 = ss2 + (-1)*s2*(slope1+slope2)
+        !             ss2 = ss2 + (-1)*s2*(slope1+slope2)
 
 
-                    If (t(i)>(kpls-1)*(tt1+tt2+tt3+tt4)+tt1+tt2)Then
+        !             If (t(i)>(kpls-1)*(tt1+tt2+tt3+tt4)+tt1+tt2)Then
 
-                        Call frt(rho, hh, t(i)-(kpls-1)*(tt1+tt2+tt3+tt4)-tt1-tt2, s2, 2, zplus, zminus, 1, ik, nlayer)
+        !                 Call frt(rho, hh, t(i)-(kpls-1)*(tt1+tt2+tt3+tt4)-tt1-tt2, s2, 2, zplus, zminus, 1, ik, nlayer)
 
-                        ss2 = ss2 + (-1)*s2*(slope3-slope2)
+        !                 ss2 = ss2 + (-1)*s2*(slope3-slope2)
 
-                        If (t(i)>(kpls-1)*(tt1+tt2+tt3+tt4)+tt1+tt2+tt3)Then
+        !                 If (t(i)>(kpls-1)*(tt1+tt2+tt3+tt4)+tt1+tt2+tt3)Then
 
-                            Call frt(rho, hh, t(i)-(kpls-1)*(tt1+tt2+tt3+tt4)-tt1-tt2-tt3, s2, 2, zplus, zminus, 1, ik, nlayer)
+        !                     Call frt(rho, hh, t(i)-(kpls-1)*(tt1+tt2+tt3+tt4)-tt1-tt2-tt3, s2, 2, zplus, zminus, 1, ik, nlayer)
 
-                            ss2 = ss2 + s2*slope3
+        !                     ss2 = ss2 + s2*slope3
 
-                        End If
-                    End If
-                End If
-            End If
+        !                 End If
+        !             End If
+        !         End If
+        !     End If
 
-            ! dB/dt for trapezoid
-            hz1(i) = 4*rt*rt*nturn*ss2*(pi*rr**2*nturn1)
-        End Do
+        !     ! dB/dt for trapezoid
+        !     hz1(i) = 4*rt*rt*nturn*ss2*(pi*rr**2*nturn1)
+        ! End Do
 
     End If
 
@@ -1453,18 +1488,19 @@ end module mmul_mod
    
     
     CALL CPU_TIME(iTimes3)
-    Do nn = 1, nc
-        n = -nc + ncnull + nn
-        omega(nn) = q**(-(n-1))/t
-        f(nn) = omega(nn)/(2.D0*pi)
-    End Do
+    ! Do nn = 1, nc
+    !     n = -nc + ncnull + nn
+    !     omega(nn) = q**(-(n-1))/t
+    !     f(nn) = omega(nn)/(2.D0*pi)
+    ! End Do
 
-    Do i = 1, nfrq
-        funr0(i) = dreal(func(item,i))
-        funi0(i) = dimag(func(item,i))
-    End Do
-    Call spl(nfrq, nc, frq, funr0, f, funr1)  !interpolation
-    Call spl(nfrq, nc, frq, funi0, f, funi1)
+    ! Do i = 1, nfrq
+    !     funr0(i) = dreal(func(item,i))
+    !     funi0(i) = dimag(func(item,i))
+    ! End Do
+    ! Call spl(nfrq, nc, frq, funr0, f, funr1)  !interpolation
+    ! Call spl(nfrq, nc, frq, funi0, f, funi1)
+
     ft = 0.D0
 
     Do nn = 1, nc
