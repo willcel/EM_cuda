@@ -1,4 +1,62 @@
 
+module mmul_mod
+  use cudafor
+ contains
+  ! mmul_kernel computes A*B into C where
+  ! A is NxM, B is MxL, C is then NxL
+  attributes(global) subroutine mmul_kernel( A, B, C, N, M, L )
+   real *8 :: A(N,M), B(M,L), C(N,L)
+   integer, value :: N, M, L
+   integer :: i, j, kb, k, tx, ty
+   ! the value of C(i,j) being computed
+   real *8 :: Cij
+   ! Get the thread indices
+   tx = threadidx%x
+   ty = threadidx%y
+   ! This thread computes C(i,j) = sum(A(i,:) * B(:,j))
+   i = (blockidx%x-1) * N + tx
+   j = (blockidx%y-1) * L + ty
+   Cij = 0.0
+   ! Do the k loop in chunks of 16, the block size
+   if(i<=N .and. j <= L)then
+      do k = 1,N
+        Cij = Cij + A(tx,k) * B(k,ty)
+      end do
+      ! Synchronize to make sure all threads are done
+      ! reading the submatrices before overwriting them
+      ! in the next iteration of the kb loop
+      call syncthreads()
+      ! Each of the 16x16 threads stores its element
+      ! to the global C array
+      C(i,j) = Cij
+   end if
+   end subroutine mmul_kernel
+ ! The host routine to drive the matrix multiplication
+  subroutine mmul( A, B, C )
+   real *8, dimension(:,:) :: A, B, C
+   ! allocatable device arrays
+   real *8, device, allocatable, dimension(:,:) :: Adev,Bdev,Cdev
+   ! dim3 variables to define the grid and block shapes
+   type(dim3) :: dimGrid, dimBlock
+   ! Get the array sizes
+   N = size( A, 1 )
+   M = size( A, 2 )
+   L = size( B, 2 )
+   ! Allocate the device arrays
+   allocate( Adev(N,M), Bdev(M,L), Cdev(N,L) )
+   ! Copy A and B to the device
+   Adev = A(1:N,1:M)
+   Bdev(:,:) = B(1:M,1:L)
+   ! Create the grid and block dimensions
+   dimGrid = dim3( 1, 1, 1 )
+   dimBlock = dim3( 32, 32, 1 )
+   call mmul_kernel<<<dimGrid,dimBlock>>>( Adev, Bdev, Cdev, N, M, L)
+   ! Copy the results back and free up memory
+   C(1:N,1:L) = Cdev
+   deallocate( Adev, Bdev, Cdev )
+  end subroutine mmul
+end module mmul_mod
+
     !***************************************************
     ! �����ݴŵ���
     !***************************************************
@@ -42,6 +100,8 @@
 
     program main
     use ran_mod
+    use mmul_mod
+    use cudafor
 
     REAL :: cpu_start, cpu_finish, iter_start, iter_finish, elapsed_time
     REAL :: iTimes1, iTimes2, iTimes3, iTimes4
@@ -76,6 +136,7 @@
     real *8,allocatable::deltaRp(:,:),deltaRd(:,:)
     real *8,allocatable::Wp(:,:), Wd(:,:),Rp(:,:),Rd(:,:)
     real *8,allocatable::s(:),e(:),work(:),u(:,:),v(:,:)
+    real *8,allocatable::res1(:,:), res2(:,:), res3(:,:), res4(:,:)
 
     real *8,allocatable:: point1set(:), point2set(:), point3set(:), point4set(:),ht(:)
 
@@ -128,14 +189,12 @@
     allocate(work(ka))
     allocate(u(size2,size2))
     allocate(v(tot_para,tot_para))
-
     allocate(rho_iter(nolayer), hh_iter(nolayer))
-
     allocate(rho_pro(nolayer*ns_real), hh_pro(nolayer*ns_real))
-
-
     allocate(point1set(ns_real*2), point2set(ns_real*2), point3set(ns_real*2), point4set(ns_real*2),ht(ns_real))
 
+    allocate(res1(tot_para,tot_para),res2(tot_para,tot_ntc))
+    allocate(res3(tot_para,tot_ntc),res4(tot_para,1))
 
 
     print*,"size0 = ",size0
@@ -354,9 +413,21 @@
 
 
     ! lambda ̫С��ʱ���ʹ������������
+    ! res2 = matmul(transpose(v),invBtemp)
+    ! print*, res2(1,1)
+
+    call mmul(transpose(v),invBtemp, res1)
+    call mmul(res1,transpose(Atemp), res2)
+    call mmul(res2,transpose(u), res3)
+    call mmul(res3,b0, res4)
+    ! print*, res4(1,1)
+
     deltam = matmul(matmul(matmul(matmul(transpose(v),invBtemp),&
         transpose(Atemp)),transpose(u)),b0)
 
+    print*, res4
+    print*, '------'
+    print*, deltam
 
     m_next = m_pre+deltam
 
@@ -378,7 +449,7 @@
     WRITE(23,*) 'Iter', counter ,' CPU time:', elapsed_time, 'seconds'
     WRITE(*,*) 'Iter', counter ,' CPU time:', elapsed_time, 'seconds'
 
-    If(rerror>epsi .and. counter<3) Goto 101
+    If(rerror>epsi .and. counter<1) Goto 101
 
     Write(17, *)1.0
 
@@ -1382,6 +1453,7 @@
     ! End If
    
     
+    CALL CPU_TIME(iTimes3)
     Do nn = 1, nc
         n = -nc + ncnull + nn
         omega(nn) = q**(-(n-1))/t
@@ -1396,7 +1468,6 @@
     Call spl(nfrq, nc, frq, funi0, f, funi1)
     ft = 0.D0
 
-    CALL CPU_TIME(iTimes3)
     Do nn = 1, nc
 
         If (ic==0) Then
@@ -1418,7 +1489,7 @@
     ft = -ft*dsqrt(2.D0/pi/t)
     CALL CPU_TIME(iTimes4)
     elapsed_time = iTimes4 - iTimes3
-    ! WRITE(*,*) 'hankel CPU time:', elapsed_time, 'seconds'
+    WRITE(*,*) 'hankel CPU time:', elapsed_time, 'seconds'
 
     Return
     End Subroutine frt
